@@ -32,28 +32,36 @@ function goScreen(name) {
 }
 
 // ---------- auth ----------
-// Delegamos el click del link de cambio de modo (el nodo <a> se reemplaza cada vez con innerHTML)
+// Event delegation for the mode-switch link (the <a> node is replaced via innerHTML each time)
 $("#auth-switch-text").addEventListener("click", (e) => {
   if (e.target.id !== "auth-switch-link") return;
   e.preventDefault();
   authMode = authMode === "signin" ? "signup" : "signin";
   if (authMode === "signup") {
-    $("#auth-title").textContent = "Crea tu cuenta";
-    $("#auth-sub").textContent = "Sube tu primer fit en un momento.";
-    $("#btn-auth-submit").textContent = "Crear cuenta";
-    $("#auth-switch-text").innerHTML = '¿Ya tienes cuenta? <a href="#" id="auth-switch-link">Entrar</a>';
+    $("#auth-title").textContent = "Create your account";
+    $("#auth-sub").textContent = "Upload your first fit in a moment.";
+    $("#btn-auth-submit").textContent = "Create account";
+    $("#auth-switch-text").innerHTML = 'Already have an account? <a href="#" id="auth-switch-link">Log in</a>';
   } else {
-    $("#auth-title").textContent = "Vota el fit";
-    $("#auth-sub").textContent = "Sube tu look. Que decida la gente.";
-    $("#btn-auth-submit").textContent = "Entrar";
-    $("#auth-switch-text").innerHTML = '¿No tienes cuenta? <a href="#" id="auth-switch-link">Crear cuenta</a>';
+    $("#auth-title").textContent = "Vote the fit";
+    $("#auth-sub").textContent = "Upload your look. Let people decide.";
+    $("#btn-auth-submit").textContent = "Log in";
+    $("#auth-switch-text").innerHTML = 'Don\'t have an account? <a href="#" id="auth-switch-link">Create account</a>';
   }
+});
+
+$("#btn-toggle-password").addEventListener("click", () => {
+  const input = $("#auth-password");
+  const btn = $("#btn-toggle-password");
+  const show = input.type === "password";
+  input.type = show ? "text" : "password";
+  btn.textContent = show ? "Hide" : "Show";
 });
 
 $("#btn-auth-submit").addEventListener("click", async () => {
   const email = $("#auth-email").value.trim();
   const password = $("#auth-password").value;
-  if (!email || !password) return toast("Rellena correo y contraseña");
+  if (!email || !password) return toast("Fill in email and password");
 
   const btn = $("#btn-auth-submit");
   btn.disabled = true;
@@ -64,28 +72,35 @@ $("#btn-auth-submit").addEventListener("click", async () => {
     if (authMode === "signup") {
       const { error } = await supa.auth.signUp({ email, password });
       if (error) throw error;
-      toast("Cuenta creada. ¡Bienvenida/o!");
+      toast("Account created. Welcome!");
     } else {
       const { error } = await supa.auth.signInWithPassword({ email, password });
       if (error) throw error;
     }
   } catch (err) {
-    toast(traducirErrorAuth(err.message));
+    toast(translateAuthError(err.message));
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
   }
 });
 
-function traducirErrorAuth(msg) {
-  if (/already registered/i.test(msg)) return "Ese correo ya tiene cuenta";
-  if (/invalid login/i.test(msg)) return "Correo o contraseña incorrectos";
-  if (/password/i.test(msg) && /6/.test(msg)) return "La contraseña necesita al menos 6 caracteres";
+$("#btn-google-auth").addEventListener("click", async () => {
+  await supa.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: window.location.origin },
+  });
+});
+
+function translateAuthError(msg) {
+  if (/already registered/i.test(msg)) return "That email is already registered";
+  if (/invalid login/i.test(msg)) return "Incorrect email or password";
+  if (/password/i.test(msg) && /6/.test(msg)) return "Password needs at least 6 characters";
   return msg;
 }
 
 $("#premium-pill").addEventListener("click", async () => {
-  if (confirm("¿Cerrar sesión?")) {
+  if (confirm("Log out?")) {
     await supa.auth.signOut();
   }
 });
@@ -101,7 +116,7 @@ async function loadDeck() {
   stage.innerHTML = '<div class="spinner" style="border-top-color:var(--primary);border-color:rgba(108,92,231,0.25)"></div>';
   const { data, error } = await supa.rpc("get_deck", { p_limit: 15 });
   if (error) {
-    stage.innerHTML = `<div class="empty-state"><span class="big-emoji">&#10005;</span>No se pudo cargar el mazo.</div>`;
+    stage.innerHTML = `<div class="empty-state"><span class="big-emoji">&#10005;</span>Couldn't load the deck.</div>`;
     return;
   }
   deck = data || [];
@@ -114,7 +129,7 @@ function renderCard() {
   const actions = $("#deck-actions");
   if (deckIndex >= deck.length) {
     hide(actions);
-    stage.innerHTML = `<div class="empty-state"><span class="big-emoji">&#9733;</span>Ya has visto todos los fits de hoy.<br>Vuelve más tarde.</div>`;
+    stage.innerHTML = `<div class="empty-state"><span class="big-emoji">&#9733;</span>You've seen all today's fits.<br>Come back later.</div>`;
     return;
   }
   show(actions);
@@ -125,7 +140,7 @@ function renderCard() {
       <img src="${imgUrl}" alt="outfit" />
       <div class="card-footer">
         <div class="card-name">Fit #${deckIndex + 1}</div>
-        ${post.affiliate_link ? `<a class="card-link" href="${post.affiliate_link}" target="_blank" rel="noopener">Comprar prendas →</a>` : ""}
+        ${post.affiliate_link ? `<a class="card-link" href="${post.affiliate_link}" target="_blank" rel="noopener">Shop the look →</a>` : ""}
       </div>
     </div>
   `;
@@ -147,8 +162,54 @@ async function voteCurrent(action) {
 $("#btn-like").addEventListener("click", () => voteCurrent("like"));
 $("#btn-pass").addEventListener("click", () => voteCurrent("skip"));
 
-// ---------- upload ----------
+// ---------- upload / crop ----------
 let selectedFile = null;
+let cropState = null; // { naturalW, naturalH, scale, minScale, x, y }
+const OUT_W = 1000;
+const OUT_H = 1333; // same 3:4 ratio as the deck cards
+
+function getCropViewportSize() {
+  const rect = $("#crop-viewport").getBoundingClientRect();
+  return { w: rect.width, h: rect.height };
+}
+
+function clampCrop() {
+  const { w: vw, h: vh } = getCropViewportSize();
+  const dispW = cropState.naturalW * cropState.scale;
+  const dispH = cropState.naturalH * cropState.scale;
+  const minX = Math.min(0, vw - dispW);
+  const minY = Math.min(0, vh - dispH);
+  cropState.x = Math.max(minX, Math.min(0, cropState.x));
+  cropState.y = Math.max(minY, Math.min(0, cropState.y));
+}
+
+function renderCrop() {
+  $("#crop-img").style.transform = `translate(${cropState.x}px, ${cropState.y}px) scale(${cropState.scale})`;
+}
+
+function initCrop(imgEl) {
+  const { w: vw, h: vh } = getCropViewportSize();
+  const coverScale = Math.max(vw / imgEl.naturalWidth, vh / imgEl.naturalHeight);
+  cropState = {
+    naturalW: imgEl.naturalWidth,
+    naturalH: imgEl.naturalHeight,
+    scale: coverScale,
+    minScale: coverScale,
+    x: (vw - imgEl.naturalWidth * coverScale) / 2,
+    y: (vh - imgEl.naturalHeight * coverScale) / 2,
+  };
+  $("#zoom-range").value = 1;
+  clampCrop();
+  renderCrop();
+}
+
+function resetCropUI() {
+  selectedFile = null;
+  cropState = null;
+  $("#upload-input").value = "";
+  hide($("#crop-wrap"));
+  show($("#upload-box"));
+}
 
 $("#upload-input").addEventListener("change", (e) => {
   const file = e.target.files[0];
@@ -156,10 +217,84 @@ $("#upload-input").addEventListener("change", (e) => {
   selectedFile = file;
   const reader = new FileReader();
   reader.onload = () => {
-    $("#upload-box").innerHTML = `<img src="${reader.result}" alt="preview" />`;
+    const img = $("#crop-img");
+    img.onload = () => {
+      hide($("#upload-box"));
+      show($("#crop-wrap"));
+      initCrop(img);
+    };
+    img.src = reader.result;
   };
   reader.readAsDataURL(file);
 });
+
+$("#btn-change-photo").addEventListener("click", resetCropUI);
+
+// drag to reposition (mouse and touch)
+let dragging = false;
+let dragStart = { x: 0, y: 0, cropX: 0, cropY: 0 };
+
+function cropPointerDown(e) {
+  if (!cropState) return;
+  dragging = true;
+  $("#crop-viewport").classList.add("dragging");
+  const p = e.touches ? e.touches[0] : e;
+  dragStart = { x: p.clientX, y: p.clientY, cropX: cropState.x, cropY: cropState.y };
+}
+function cropPointerMove(e) {
+  if (!dragging || !cropState) return;
+  const p = e.touches ? e.touches[0] : e;
+  cropState.x = dragStart.cropX + (p.clientX - dragStart.x);
+  cropState.y = dragStart.cropY + (p.clientY - dragStart.y);
+  clampCrop();
+  renderCrop();
+  e.preventDefault();
+}
+function cropPointerUp() {
+  dragging = false;
+  $("#crop-viewport").classList.remove("dragging");
+}
+
+const cropViewportEl = $("#crop-viewport");
+cropViewportEl.addEventListener("mousedown", cropPointerDown);
+window.addEventListener("mousemove", cropPointerMove);
+window.addEventListener("mouseup", cropPointerUp);
+cropViewportEl.addEventListener("touchstart", cropPointerDown, { passive: true });
+cropViewportEl.addEventListener("touchmove", cropPointerMove, { passive: false });
+cropViewportEl.addEventListener("touchend", cropPointerUp);
+
+$("#zoom-range").addEventListener("input", (e) => {
+  if (!cropState) return;
+  const { w: vw, h: vh } = getCropViewportSize();
+  const zoom = parseFloat(e.target.value); // 1..3
+  const cx = vw / 2, cy = vh / 2;
+  const imgCx = (cx - cropState.x) / cropState.scale;
+  const imgCy = (cy - cropState.y) / cropState.scale;
+  cropState.scale = cropState.minScale * zoom;
+  cropState.x = cx - imgCx * cropState.scale;
+  cropState.y = cy - imgCy * cropState.scale;
+  clampCrop();
+  renderCrop();
+});
+
+function renderCroppedBlob(quality = 0.85) {
+  return new Promise((resolve) => {
+    const { w: vw } = getCropViewportSize();
+    const outScale = OUT_W / vw;
+    const canvas = document.createElement("canvas");
+    canvas.width = OUT_W;
+    canvas.height = OUT_H;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(
+      $("#crop-img"),
+      0, 0, cropState.naturalW, cropState.naturalH,
+      cropState.x * outScale, cropState.y * outScale,
+      cropState.naturalW * cropState.scale * outScale,
+      cropState.naturalH * cropState.scale * outScale
+    );
+    canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
+  });
+}
 
 async function loadQuota() {
   const { data, error } = await supa
@@ -170,56 +305,70 @@ async function loadQuota() {
 
   const banner = $("#quota-banner");
   if (error || !data) {
-    banner.textContent = "No se pudo comprobar tu cuota.";
+    banner.textContent = "Couldn't check your quota.";
     return;
   }
   const today = new Date().toISOString().slice(0, 10);
   const postsToday = data.last_post_date === today ? data.posts_today : 0;
 
   if (data.is_premium) {
-    banner.innerHTML = `<span>Cuenta <strong>premium</strong></span><span>Publicaciones ilimitadas</span>`;
+    banner.innerHTML = `<span>Premium <strong>account</strong></span><span>Unlimited posts</span>`;
   } else if (postsToday >= 1) {
-    banner.innerHTML = `<span>Límite diario usado</span><span class="pill premium">Hazte premium</span>`;
+    banner.innerHTML = `<span>Daily limit reached</span><button type="button" class="pill premium">Go Premium</button>`;
   } else {
-    banner.innerHTML = `<span>Foto gratis de hoy</span><strong>disponible</strong>`;
+    banner.innerHTML = `<span>Free photo today</span><strong>available</strong>`;
   }
 }
 
-function resizeImage(file, maxDim = 1000, quality = 0.82) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = () => { img.src = reader.result; };
-    reader.onerror = reject;
-    img.onload = () => {
-      let { width, height } = img;
-      if (width > height && width > maxDim) {
-        height = Math.round((height * maxDim) / width);
-        width = maxDim;
-      } else if (height > maxDim) {
-        width = Math.round((width * maxDim) / height);
-        height = maxDim;
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
-    };
-    img.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+// ---------- premium (Stripe Checkout) ----------
+$("#quota-banner").addEventListener("click", (e) => {
+  if (!e.target.classList.contains("premium")) return;
+  goPremiumCheckout();
+});
+
+async function goPremiumCheckout() {
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session) return toast("Please sign in first");
+  toast("Opening checkout…");
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/create-checkout-session`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+      },
+    });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      toast(data.error || "Couldn't start checkout");
+    }
+  } catch (err) {
+    toast("Couldn't start checkout");
+  }
 }
 
+(function checkPremiumRedirect() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("premium") === "ok") {
+    toast("Payment complete! Activating premium…");
+    history.replaceState({}, "", location.pathname);
+  } else if (params.get("premium") === "cancelado") {
+    toast("Payment canceled");
+    history.replaceState({}, "", location.pathname);
+  }
+})();
+
 $("#btn-upload-submit").addEventListener("click", async () => {
-  if (!selectedFile) return toast("Elige una foto primero");
+  if (!selectedFile || !cropState) return toast("Choose a photo first");
   const btn = $("#btn-upload-submit");
   btn.disabled = true;
   const originalText = btn.textContent;
   btn.innerHTML = '<div class="spinner"></div>';
 
   try {
-    const blob = await resizeImage(selectedFile);
+    const blob = await renderCroppedBlob();
     const path = `${currentUser.id}/${Date.now()}.jpg`;
 
     const { error: uploadError } = await supa.storage
@@ -233,22 +382,20 @@ $("#btn-upload-submit").addEventListener("click", async () => {
       p_affiliate_link: affiliateLink || null,
     });
     if (rpcError) {
-      // limpiar el archivo subido si el post no se pudo crear
+      // clean up the uploaded file if the post couldn't be created
       await supa.storage.from("outfit-photos").remove([path]);
       if (/DAILY_LIMIT_REACHED/.test(rpcError.message)) {
-        throw new Error("Ya has publicado tu foto gratis de hoy");
+        throw new Error("You've already published today's free photo");
       }
       throw rpcError;
     }
 
-    toast("¡Publicado! Ya está en el mazo.");
-    selectedFile = null;
-    $("#upload-input").value = "";
-    $("#upload-box").innerHTML = '<span class="big-emoji">&#9635;</span>Toca para elegir una foto';
+    toast("Published! It's in the deck now.");
+    resetCropUI();
     $("#affiliate-input").value = "";
     loadQuota();
   } catch (err) {
-    toast(err.message || "No se pudo publicar");
+    toast(err.message || "Couldn't publish");
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
@@ -261,7 +408,7 @@ async function loadRanking() {
   list.innerHTML = '<div class="spinner" style="border-top-color:var(--primary);border-color:rgba(108,92,231,0.25)"></div>';
   const { data, error } = await supa.rpc("get_ranking", { p_limit: 50 });
   if (error || !data || data.length === 0) {
-    list.innerHTML = `<div class="empty-state"><span class="big-emoji">&#9733;</span>Todavía no hay votos suficientes.</div>`;
+    list.innerHTML = `<div class="empty-state"><span class="big-emoji">&#9733;</span>Not enough votes yet.</div>`;
     return;
   }
   list.innerHTML = data
@@ -273,7 +420,7 @@ async function loadRanking() {
           <img class="rank-thumb" src="${imgUrl}" alt="fit" />
           <div class="rank-meta">
             <div class="name">Fit #${i + 1}</div>
-            <div class="likes">${post.likes_count} ${post.likes_count === 1 ? "me gusta" : "me gusta"}</div>
+            <div class="likes">${post.likes_count} ${post.likes_count === 1 ? "like" : "likes"}</div>
           </div>
         </div>
       `;
@@ -281,7 +428,7 @@ async function loadRanking() {
     .join("");
 }
 
-// ---------- sesión ----------
+// ---------- session ----------
 supa.auth.onAuthStateChange((event, session) => {
   currentUser = session ? session.user : null;
   if (currentUser) {
