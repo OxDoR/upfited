@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Upfited — vota outfits</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ===================== AUTH ===================== -->
+    <section id="screen-auth">
+      <div class="auth-hero">
+        <div class="logo" style="font-size:30px;">Upfited</div>
+        <h1 id="auth-title">Vota el fit</h1>
+        <p id="auth-sub">Sube tu look. Que decida la gente.</p>
+      </div>
+
+      <input id="auth-email" type="email" placeholder="Correo electrónico" autocomplete="email" />
+      <input id="auth-password" type="password" placeholder="Contraseña" autocomplete="current-password" />
+
+      <button class="btn-primary" id="btn-auth-submit">Entrar</button>
+
+      <p class="auth-switch" id="auth-switch-text">
+        ¿No tienes cuenta? <a href="#" id="auth-switch-link">Crear cuenta</a>
+      </p>
+    </section>
+
+    <!-- ===================== DECK (swipe) ===================== -->
+    <section id="screen-deck" class="hidden">
+      <div class="topbar">
+        <div class="logo">Upfited</div>
+        <button class="pill" id="premium-pill">Perfil</button>
+      </div>
+
+      <div class="deck-stage" id="deck-stage">
+        <!-- se rellena por JS -->
+      </div>
+
+      <div class="deck-actions" id="deck-actions">
+        <button class="round-btn pass" id="btn-pass" title="Pasar">&#10005;</button>
+        <button class="round-btn like" id="btn-like" title="Me gusta">&#9829;</button>
+      </div>
+    </section>
+
+    <!-- ===================== UPLOAD ===================== -->
+    <section id="screen-upload" class="hidden">
+      <div class="topbar">
+        <div class="logo">Upfited</div>
+      </div>
+
+      <div class="section-title">Sube tu fit</div>
+      <p class="section-sub">Una foto gratis al día. La gente vota, tú subes.</p>
+
+      <div class="quota-banner" id="quota-banner">Comprobando tu cuota…</div>
+
+      <label class="upload-box" id="upload-box" for="upload-input">
+        <span class="big-emoji">&#9635;</span>
+        Toca para elegir una foto
+      </label>
+      <input type="file" id="upload-input" accept="image/*" class="hidden" />
+
+      <label class="field-label">Enlace de compra (opcional)</label>
+      <input id="affiliate-input" type="url" placeholder="https://amazon.es/tu-producto" />
+
+      <button class="btn-primary" id="btn-upload-submit" style="margin-top:18px;">Publicar</button>
+    </section>
+
+    <!-- ===================== RANKING ===================== -->
+    <section id="screen-ranking" class="hidden">
+      <div class="topbar">
+        <div class="logo">Upfited</div>
+      </div>
+      <div class="section-title">Los más votados</div>
+      <p class="section-sub">El ranking se actualiza al momento.</p>
+      <div id="ranking-list"></div>
+    </section>
+
+    <!-- ===================== BOTTOM NAV ===================== -->
+    <nav class="bottom-nav hidden" id="bottom-nav">
+      <button class="nav-item" data-screen="deck">
+        <span class="icon">&#9670;</span>
+        Descubrir
+      </button>
+      <button class="nav-item" data-screen="upload">
+        <span class="icon">+</span>
+        Subir
+      </button>
+      <button class="nav-item" data-screen="ranking">
+        <span class="icon">&#9733;</span>
+        Ranking
+      </button>
+    </nav>
+
+    <div id="toast"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
